@@ -51,6 +51,8 @@ class BasicMAC:
                     # Zero out the unavailable actions
                     agent_outs[reshaped_avail_actions == 0] = 0.0
 
+        if self.args.agent == 'izrnn':
+            return agent_outs.view(ep_batch.batch_size, self.n_agents, -1, self.args.quantiles_num)
         return agent_outs.view(ep_batch.batch_size, self.n_agents, -1)
 
     def init_hidden(self, batch_size):

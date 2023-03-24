@@ -14,10 +14,13 @@ buffer_size: 5000
 target_update_interval: 200
 
 # use the Q_Learner to train
-agent: "irnn"
 agent_output_type: "q"
 learner: "q_learner"
 double_q: True
 mixer: # Mixer becomes None
+z_learnerL: True
+quantiles_num: 200
+ucb: 60
+ucb_w: 0.8
 
-name: "iql"
+name: "method5"

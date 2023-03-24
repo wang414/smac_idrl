@@ -52,9 +52,12 @@ class EpsilonGreedyActionSelector():
 
         # mask actions that are excluded from selection
         masked_q_values = agent_inputs.clone()
+        if self.args.agent == "izrnn":
+            masked_q_values = masked_q_values.mean(dim=-1)
+
         masked_q_values[avail_actions == 0.0] = -float("inf")  # should never be selected!
 
-        random_numbers = th.rand_like(agent_inputs[:, :, 0])
+        random_numbers = th.rand_like(masked_q_values[:, :, 0])
         pick_random = (random_numbers < self.epsilon).long()
         random_actions = Categorical(avail_actions.float()).sample().long()
 

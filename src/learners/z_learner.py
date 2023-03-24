@@ -4,9 +4,10 @@ from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 import torch as th
 from torch.optim import RMSprop
+from utils.rl_utils import calculate_quantile_huber_loss
 
 
-class QLearner:
+class ZLearner:
     def __init__(self, mac, scheme, logger, args):
         self.args = args
         self.mac = mac
@@ -17,15 +18,6 @@ class QLearner:
         self.last_target_update_episode = 0
 
         self.mixer = None
-        if args.mixer is not None:
-            if args.mixer == "vdn":
-                self.mixer = VDNMixer()
-            elif args.mixer == "qmix":
-                self.mixer = QMixer(args)
-            else:
-                raise ValueError("Mixer {} not recognised.".format(args.mixer))
-            self.params += list(self.mixer.parameters())
-            self.target_mixer = copy.deepcopy(self.mixer)
 
         self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
 
@@ -34,8 +26,14 @@ class QLearner:
 
         self.log_stats_t = -self.args.learner_log_interval - 1
 
+        taus = th.arange(
+            0, args.quantiles_num+1, device=self.args.device, dtype=th.float32) / args.quantiles_num
+        self.tau_hats = ((taus[1:] + taus[:-1]) / 2.0).view(1, args.quantiles_num)
+
+
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
         # Get the relevant quantities
+        th.cuda.empty_cache()
         rewards = batch["reward"][:, :-1]
         actions = batch["actions"][:, :-1]
         terminated = batch["terminated"][:, :-1].float()
@@ -49,10 +47,10 @@ class QLearner:
         for t in range(batch.max_seq_length):
             agent_outs = self.mac.forward(batch, t=t)
             mac_out.append(agent_outs)
-        mac_out = th.stack(mac_out, dim=1)  # Concat over time
+        mac_out = th.stack(mac_out, dim=1)  # Concat over time  [batch_size, max_seq_length, agent_num, action_num, quantiles]
 
         # Pick the Q-Values for the actions taken by each agent
-        chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)  # Remove the last dim
+        chosen_action_zvals = th.gather(mac_out[:, :-1], dim=3, index=actions.unsqueeze(-1).expand(-1,-1,-1,-1,self.args.quantiles_num)).squeeze(3)  # Remove the last dim
 
         # Calculate the Q-Values necessary for the target
         target_mac_out = []
@@ -72,29 +70,27 @@ class QLearner:
             # Get actions that maximise live Q (for double q-learning)
             mac_out_detach = mac_out.clone().detach()
             mac_out_detach[avail_actions == 0] = -9999999
-            cur_max_actions = mac_out_detach[:, 1:].max(dim=3, keepdim=True)[1]
-            target_max_qvals = th.gather(target_mac_out, 3, cur_max_actions).squeeze(3)
+            cur_max_actions = mac_out_detach[:, 1:].mean(dim=-1).max(dim=3, keepdim=True)[1]
+            target_max_zvals = th.gather(target_mac_out, 3, cur_max_actions.unsqueeze(-1).expand(-1,-1,-1,-1,self.args.quantiles_num)).squeeze(3)
         else:
-            target_max_qvals = target_mac_out.max(dim=3)[0]
+            target_max_zvals = target_mac_out.max(dim=3)[0]
 
-        # Mix
-        if self.mixer is not None:
-            chosen_action_qvals = self.mixer(chosen_action_qvals, batch["state"][:, :-1])
-            target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, 1:])
+        
 
         # Calculate 1-step Q-Learning targets
-        targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
-
+        target_max_zvals=target_max_zvals.unsqueeze(-1).transpose(3, 4)
+        agent_nums = target_max_zvals.shape[2]
+        targets = rewards.expand(-1,-1,agent_nums) [..., None, None]+ self.args.gamma * (1 - terminated.expand(-1,-1,agent_nums)[..., None, None]) * target_max_zvals
+        chosen_action_zvals=chosen_action_zvals.unsqueeze(-1)
         # Td-error
-        td_error = (chosen_action_qvals - targets.detach())
-
-        mask = mask.expand_as(td_error)
+        td_error = (chosen_action_zvals - targets.detach())
+        mask = mask[...,None,None].expand_as(td_error)
 
         # 0-out the targets that came from padded data
         masked_td_error = td_error * mask
-
+        th.cuda.empty_cache() # 5g
         # Normal L2 loss, take mean over actual data
-        loss = (masked_td_error ** 2).sum() / mask.sum()
+        loss = calculate_quantile_huber_loss(masked_td_error, self.tau_hats)
 
         # Optimise
         self.optimiser.zero_grad()
@@ -111,7 +107,7 @@ class QLearner:
             self.logger.log_stat("grad_norm", grad_norm, t_env)
             mask_elems = mask.sum().item()
             self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)
-            self.logger.log_stat("q_taken_mean", (chosen_action_qvals * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
+            self.logger.log_stat("q_taken_mean", (chosen_action_zvals.squeeze(dim=-1).mean(dim=-1) * mask[...,0,0].squeeze(dim=-1)).sum().item()/(mask_elems * self.args.n_agents), t_env)
             self.logger.log_stat("target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
             self.log_stats_t = t_env
 

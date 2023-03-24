@@ -26,7 +26,6 @@ def run(_run, _config, _log):
 
     # setup loggers
     logger = Logger(_log)
-
     _log.info("Experiment Parameters:")
     experiment_params = pprint.pformat(_config,
                                        indent=4,
@@ -80,6 +79,7 @@ def run_sequential(args, logger):
 
     # Set up schemes and groups here
     env_info = runner.get_env_info()
+    print("ENVINFO:\n{}",format(env_info))
     args.n_agents = env_info["n_agents"]
     args.n_actions = env_info["n_actions"]
     args.state_shape = env_info["state_shape"]
@@ -99,7 +99,6 @@ def run_sequential(args, logger):
     preprocess = {
         "actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])
     }
-
     buffer = ReplayBuffer(scheme, groups, args.buffer_size, env_info["episode_limit"] + 1,
                           preprocess=preprocess,
                           device="cpu" if args.buffer_cpu_only else args.device)
@@ -172,10 +171,10 @@ def run_sequential(args, logger):
             # Truncate batch to only filled timesteps
             max_ep_t = episode_sample.max_t_filled()
             episode_sample = episode_sample[:, :max_ep_t]
-
             if episode_sample.device != args.device:
                 episode_sample.to(args.device)
 
+            th.cuda.empty_cache()
             learner.train(episode_sample, runner.t_env, episode)
 
         # Execute test runs once in a while
