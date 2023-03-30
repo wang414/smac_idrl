@@ -1,7 +1,7 @@
 # --- QMIX specific parameters ---
 
 # use epsilon greedy action selector
-action_selector: "epsilon_greedy"
+action_selector: "method4"
 epsilon_start: 1.0
 epsilon_finish: 0.05
 epsilon_anneal_time: 50000
@@ -15,12 +15,12 @@ target_update_interval: 200
 
 # use the Q_Learner to train
 agent_output_type: "q"
-learner: "q_learner"
+learner: "z_learner"
 double_q: True
 mixer: # Mixer becomes None
-z_learnerL: True
-quantiles_num: 200
+quantiles_num: 100
 ucb: 60
 ucb_w: 0.8
+agent: "izrnn"
 
 name: "method5"

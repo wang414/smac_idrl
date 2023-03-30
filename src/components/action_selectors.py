@@ -68,7 +68,7 @@ class EpsilonGreedyActionSelector():
 REGISTRY["epsilon_greedy"] = EpsilonGreedyActionSelector
 
 
-class EpsilonGreedyMethod5ActionSelector():
+class EpsilonGreedyMethod4ActionSelector():
 
     def __init__(self, args):
         self.args = args
@@ -93,7 +93,7 @@ class EpsilonGreedyMethod5ActionSelector():
             masked_q_values = masked_z_values.mean(dim=-1)
         else:
             qtls = th.gather(masked_z_values, 1, self.selected_idxs)
-            masked_q_values = (1 - self.args.weight) * masked_q_values.mean(dim=-1) + self.args.weight * qtls.mean(dim=-1)
+            masked_q_values = (1 - self.args.weight) * masked_q_values.mean(dim=-1) + self.args.ucb_w * qtls.mean(dim=-1)
 
         masked_q_values[avail_actions == 0.0] = -float("inf")  # should never be selected!
 
@@ -105,4 +105,4 @@ class EpsilonGreedyMethod5ActionSelector():
         return picked_actions
 
 
-REGISTRY["method5"] = EpsilonGreedyActionSelector
+REGISTRY["method4"] = EpsilonGreedyActionSelector

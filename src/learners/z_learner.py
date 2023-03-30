@@ -48,7 +48,7 @@ class ZLearner:
             agent_outs = self.mac.forward(batch, t=t)
             mac_out.append(agent_outs)
         mac_out = th.stack(mac_out, dim=1)  # Concat over time  [batch_size, max_seq_length, agent_num, action_num, quantiles]
-
+        # print("mac_out.shape : {}".format(mac_out.shape))
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_zvals = th.gather(mac_out[:, :-1], dim=3, index=actions.unsqueeze(-1).expand(-1,-1,-1,-1,self.args.quantiles_num)).squeeze(3)  # Remove the last dim
 
