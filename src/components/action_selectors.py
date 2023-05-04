@@ -76,7 +76,7 @@ class EpsilonGreedyMethod4ActionSelector():
         self.schedule = DecayThenFlatSchedule(args.epsilon_start, args.epsilon_finish, args.epsilon_anneal_time,
                                               decay="linear")
         self.epsilon = self.schedule.eval(0)
-        self.selected_idxs = (th.arange(5, device=args.device).reshape(1, -1) + -2 + args.ucb).clip(0, 99)
+        self.selected_idxs = (th.arange(5, device=args.device) + -2 + args.ucb).clip(0, 99)
 
     def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
 
@@ -88,12 +88,13 @@ class EpsilonGreedyMethod4ActionSelector():
             self.epsilon = 0.0
 
         # mask actions that are excluded from selection
+
         masked_z_values = agent_inputs.clone()
-        if test_mode:
+        if test_mode and self.args.test_without_qtls:
             masked_q_values = masked_z_values.mean(dim=-1)
         else:
-            qtls = th.gather(masked_z_values, 1, self.selected_idxs)
-            masked_q_values = (1 - self.args.weight) * masked_q_values.mean(dim=-1) + self.args.ucb_w * qtls.mean(dim=-1)
+            qtls = masked_z_values[:,:,:,self.selected_idxs]
+            masked_q_values = (1 - self.args.ucb_w) * masked_z_values.mean(dim=-1) + self.args.ucb_w * qtls.mean(dim=-1)
 
         masked_q_values[avail_actions == 0.0] = -float("inf")  # should never be selected!
 
@@ -105,4 +106,4 @@ class EpsilonGreedyMethod4ActionSelector():
         return picked_actions
 
 
-REGISTRY["method4"] = EpsilonGreedyActionSelector
+REGISTRY["method4"] = EpsilonGreedyMethod4ActionSelector

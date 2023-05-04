@@ -22,5 +22,6 @@ quantiles_num: 100
 ucb: 60
 ucb_w: 0.8
 agent: "izrnn"
+test_without_qtls: False
 
 name: "method4"
