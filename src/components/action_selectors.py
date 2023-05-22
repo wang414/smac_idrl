@@ -76,7 +76,12 @@ class EpsilonGreedyMethod4ActionSelector():
         self.schedule = DecayThenFlatSchedule(args.epsilon_start, args.epsilon_finish, args.epsilon_anneal_time,
                                               decay="linear")
         self.epsilon = self.schedule.eval(0)
-        self.selected_idxs = (th.arange(5, device=args.device) + -2 + args.ucb).clip(0, 99)
+        if args.quantiles_num == 100:
+            self.selected_idxs = (th.arange(9, device=args.device) + -4 + args.ucb).clip(0, 99)
+        elif args.quantiles_num == 200:
+            self.selected_idxs = (th.arange(9, device=args.device) + -4 + args.ucb*2).clip(0, 199)
+        else:
+            raise ValueError('the number of quantiles must be selected in 100 or 200')
 
     def select_action(self, agent_inputs, avail_actions, t_env, test_mode=False):
 

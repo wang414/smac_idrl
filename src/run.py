@@ -164,7 +164,6 @@ def run_sequential(args, logger):
         # Run for a whole episode at a time
         episode_batch = runner.run(test_mode=False)
         buffer.insert_episode_batch(episode_batch)
-
         if buffer.can_sample(args.batch_size):
             episode_sample = buffer.sample(args.batch_size)
 
@@ -174,7 +173,6 @@ def run_sequential(args, logger):
             if episode_sample.device != args.device:
                 episode_sample.to(args.device)
 
-            th.cuda.empty_cache()
             learner.train(episode_sample, runner.t_env, episode)
 
         # Execute test runs once in a while
