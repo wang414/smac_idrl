@@ -17,8 +17,9 @@ target_update_interval: 200
 # use the Q_Learner to train
 agent: "irnn"
 agent_output_type: "q"
-learner: "q_learner"
+learner: "ma2ql_learner"
 double_q: True
 mixer: # Mixer becomes None
+interval_len : 8000
 
-name: "iql"
+name: "ma2ql"

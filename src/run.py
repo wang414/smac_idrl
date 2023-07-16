@@ -163,17 +163,28 @@ def run_sequential(args, logger):
         weight_e = args.ucb_w
         weight = weight_s = 0.0
 
+
+    if args.name == 'ma2ql':
+        cur_agent = 0
+        last_t = 0
+
     while runner.t_env <= args.t_max:
 
         # Increase weight
         if args.name == 'method4':
             if runner.t_env >= 5e5 and weight < weight_e:
                 weight = (weight_e-weight_s) * (runner.t_env - 5e5) / (args.t_max - 5e5)
-
         # Run for a whole episode at a time
         episode_batch = runner.run(test_mode=False)
         buffer.insert_episode_batch(episode_batch)
         if buffer.can_sample(args.batch_size):
+            if args.name == 'ma2ql':
+                if (runner.t_env + 1 - last_t) // args.interval_len >= 1 :
+                    cur_agent += 1
+                    last_t = runner.t_env + 1
+                    if cur_agent == args.n_agents:
+                        cur_agent = 0
+
             for _ in range(args.batch_size_run):
                 episode_sample = buffer.sample(args.batch_size)
 
@@ -184,6 +195,8 @@ def run_sequential(args, logger):
                     episode_sample.to(args.device)
                 if args.name == 'method4':
                     learner.train(episode_sample, runner.t_env, episode, weight)
+                elif args.name == 'ma2ql':
+                    learner.train(episode_sample, runner.t_env, episode, cur_agent)
                 else:
                     learner.train(episode_sample, runner.t_env, episode)
 
