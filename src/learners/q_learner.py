@@ -4,6 +4,7 @@ from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 import torch as th
 from torch.optim import RMSprop
+from torch.optim import Adam
 
 
 class QLearner:
@@ -27,7 +28,10 @@ class QLearner:
             self.params += list(self.mixer.parameters())
             self.target_mixer = copy.deepcopy(self.mixer)
 
-        self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        if args.optimizer == 'Adam':
+            self.optimiser = Adam(params=self.params, lr=args.lr)
+        else:
+            self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
 
         # a little wasteful to deepcopy (e.g. duplicates action selector), but should work for any MAC
         self.target_mac = copy.deepcopy(mac)

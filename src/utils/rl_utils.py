@@ -37,9 +37,9 @@ def calculate_quantile_huber_loss(td_errors, taus, weights=None, kappa=1.0):
         batch_size, max_seq_length, agent_num, N, N_dash)
 
     # Quantile huber loss.
-    quantile_huber_loss = element_wise_quantile_huber_loss.sum()
+    quantile_huber_loss = element_wise_quantile_huber_loss.sum(dim=3).mean(dim=3)
 
-    return quantile_huber_loss.mean()
+    return quantile_huber_loss
 
 def evaluate_quantile_at_action(s_quantiles, actions):
     assert s_quantiles.shape[0] == actions.shape[0]

@@ -4,6 +4,7 @@ from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 import torch as th
 from torch.optim import RMSprop
+from torch.optim import Adam
 from utils.rl_utils import calculate_quantile_huber_loss
 from utils.nvhelp import check_gpu_mem_usedRate
 import math
@@ -21,7 +22,11 @@ class ZLearner:
 
         self.mixer = None
 
-        self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        # self.optimiser = Adam(params=self.params, lr=args.lr, eps=args.optim_eps)
+        if args.optimizer == 'Adam':
+            self.optimiser = Adam(params=self.params, lr=args.lr)
+        # else:
+        #     self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
 
         # a little wasteful to deepcopy (e.g. duplicates action selector), but should work for any MAC
         self.target_mac = copy.deepcopy(mac)
@@ -32,18 +37,19 @@ class ZLearner:
             0, args.quantiles_num+1, device=self.args.device, dtype=th.float32) / args.quantiles_num
         self.tau_hats = ((taus[1:] + taus[:-1]) / 2.0).view(1, args.quantiles_num)
 
-        if args.quantiles_num == 100:
-            self.selected_idxs = (th.arange(9, device=args.device) + -4 + args.ucb).clip(0, 99)
-        elif args.quantiles_num == 200:
-            self.selected_idxs = (th.arange(9, device=args.device) + -4 + args.ucb*2).clip(0, 199)
-        else:
-            raise ValueError('the number of quantiles must be selected in 100 or 200')
+        if args.name == 'method4':
+            if args.quantiles_num == 100:
+                self.selected_idxs = (th.arange(9, device=args.device) + -4 + args.ucb).clip(0, 99)
+            elif args.quantiles_num == 200:
+                self.selected_idxs = (th.arange(9, device=args.device) + -4 + args.ucb*2).clip(0, 199)
+            else:
+                raise ValueError('the number of quantiles must be selected in 100 or 200')
 
 
-    def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
+    def train(self, batch: EpisodeBatch, t_env: int, episode_num: int, weight = 0.5):
         # Get the relevant quantities
         th.cuda.empty_cache()
-        self.optimiser.zero_grad()
+        
         rewards = batch["reward"][:, :-1]
         actions = batch["actions"][:, :-1]
         terminated = batch["terminated"][:, :-1].float()
@@ -85,22 +91,24 @@ class ZLearner:
                 mac_out_detach[avail_actions == 0] = -9999999
                 if self.args.name=='method4':
                     qtls = mac_out_detach[:,:,:,:,self.selected_idxs]
-                    mac_out_detach = (1 - self.args.ucb_w) * mac_out_detach.mean(dim=-1) + self.args.ucb_w * qtls.mean(dim=-1)
+                    # print(f"ucb_w {weight}")
+                    mac_out_detach = (1 - weight) * mac_out_detach.mean(dim=-1) + weight * qtls.mean(dim=-1)
                 else:
                     mac_out_detach = mac_out_detach.mean(dim=-1)
-                cur_max_actions = mac_out_detach[:, 1:].max(dim=3, keepdim=True)[1]
-                target_max_zvals = th.gather(target_mac_out, 3, cur_max_actions.unsqueeze(-1).expand(-1,-1,-1,-1,self.args.quantiles_num)).squeeze(3) # batch, len, agent, quantile
+                max_actions = mac_out_detach[:, 1:].max(dim=3, keepdim=True)[1]
+                target_max_zvals = th.gather(target_mac_out, 3, max_actions.unsqueeze(-1).expand(-1,-1,-1,-1,self.args.quantiles_num)).squeeze(3) # batch, len, agent, quantile
         else:
             raise Exception('unacomplish none double-q')
             target_max_zvals = target_mac_out.max(dim=3)[0]
 
         agent_num = target_max_zvals.shape[2]
-        train_agents_num = min(agent_num,max(3,(int)(agent_num)**0.5))
+        train_agents_num = min(agent_num,max(3,(int)(agent_num**0.5)))
+        self.optimiser.zero_grad()
         for i in range(math.ceil(agent_num/train_agents_num)):
             th.cuda.empty_cache()
             b = i*train_agents_num
             e = min(b+train_agents_num,agent_num)
-            idx = th.arange(b,e)
+            idx = th.arange(b,e,dtype=th.int64)
             # Calculate 1-step Q-Learning targets
             cur_target_max_zvals=target_max_zvals[:,:,idx,:].unsqueeze(-1).transpose(3, 4)
             num = idx.shape[0]
@@ -108,20 +116,23 @@ class ZLearner:
             cur_chosen_action_zvals=chosen_action_zvals[:,:,idx,:].unsqueeze(-1)
             # loss = (cur_chosen_action_zvals**2).sum()
             # Td-error
-            # print('before td')
-            # print(f"{th.cuda.memory_allocated()/1024**3}gb")
             td_error = (cur_chosen_action_zvals - targets.detach())  # batch_size epsidode_len agent_num N N
-            cur_mask = mask[...,None,None].expand_as(td_error)
+            loss = calculate_quantile_huber_loss(td_error, self.tau_hats) # batch_size len agent_num
+            cur_mask = mask.expand_as(loss)
 
             # 0-out the targets that came from padded data
-            masked_td_error = td_error * cur_mask
-            th.cuda.empty_cache() 
+            masked_loss = loss * cur_mask
             # quantile_huber_loss
-            loss = calculate_quantile_huber_loss(masked_td_error, self.tau_hats) / cur_mask.sum()
+            masked_loss = masked_loss.sum() / cur_mask.sum() * (e-b+1) / agent_num
             # Optimise
-            loss.backward(retain_graph=True)
-            
-            
+            masked_loss.backward(retain_graph=True)
+            th.cuda.empty_cache() 
+        
+       
+        # for i,m in zip(range(len(self.mac.agent.fc1)), self.mac.agent.fc1):
+        #     print(f'agent{i}')
+        #     print(m.weight.grad.abs().sum())
+
         grad_norm = th.nn.utils.clip_grad_norm_(self.params, self.args.grad_norm_clip).to('cpu')
         self.optimiser.step()
         # print('after step loss')
@@ -132,15 +143,15 @@ class ZLearner:
             self.last_target_update_episode = episode_num
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
-            self.logger.log_stat("loss", loss.item(), t_env)
+            self.logger.log_stat("loss", masked_loss.item(), t_env)
             self.logger.log_stat("grad_norm", grad_norm, t_env)
             mask_elems = mask.sum().item()
-            self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)
+            self.logger.log_stat("td_error_abs", (masked_loss.sum().item()/mask_elems), t_env)
             # print(f"chosen_action_zvals shape:{chosen_action_zvals.mean(dim=-1).shape}")
             # print(mask.expand_as(chosen_action_zvals.mean(dim=-1)).shape)
             chosen_action_zvals.mean(dim=-1) * mask.expand_as(chosen_action_zvals.mean(dim=-1))
             self.logger.log_stat("q_taken_mean", (chosen_action_zvals.mean(dim=-1) * mask.expand_as(chosen_action_zvals.mean(dim=-1))).sum().item()/(mask_elems * self.args.n_agents), t_env)
-            # self.logger.log_stat("target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
+            self.logger.log_stat("target_mean", (targets * mask[...,None,None].expand_as(targets)).sum().item()/(mask[...,None,None].expand_as(targets).sum().item() * train_agents_num), t_env)
             self.log_stats_t = t_env
 
     def _update_targets(self):

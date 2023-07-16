@@ -159,21 +159,33 @@ def run_sequential(args, logger):
 
     logger.console_logger.info("Beginning training for {} timesteps".format(args.t_max))
 
+    if args.name == 'method4':
+        weight_e = args.ucb_w
+        weight = weight_s = 0.0
+
     while runner.t_env <= args.t_max:
+
+        # Increase weight
+        if args.name == 'method4':
+            if runner.t_env >= 5e5 and weight < weight_e:
+                weight = (weight_e-weight_s) * (runner.t_env - 5e5) / (args.t_max - 5e5)
 
         # Run for a whole episode at a time
         episode_batch = runner.run(test_mode=False)
         buffer.insert_episode_batch(episode_batch)
         if buffer.can_sample(args.batch_size):
-            episode_sample = buffer.sample(args.batch_size)
+            for _ in range(args.batch_size_run):
+                episode_sample = buffer.sample(args.batch_size)
 
-            # Truncate batch to only filled timesteps
-            max_ep_t = episode_sample.max_t_filled()
-            episode_sample = episode_sample[:, :max_ep_t]
-            if episode_sample.device != args.device:
-                episode_sample.to(args.device)
-
-            learner.train(episode_sample, runner.t_env, episode)
+                # Truncate batch to only filled timesteps
+                max_ep_t = episode_sample.max_t_filled()
+                episode_sample = episode_sample[:, :max_ep_t]
+                if episode_sample.device != args.device:
+                    episode_sample.to(args.device)
+                if args.name == 'method4':
+                    learner.train(episode_sample, runner.t_env, episode, weight)
+                else:
+                    learner.train(episode_sample, runner.t_env, episode)
 
         # Execute test runs once in a while
         n_test_runs = max(1, args.test_nepisode // runner.batch_size)

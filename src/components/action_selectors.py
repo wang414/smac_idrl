@@ -111,4 +111,4 @@ class EpsilonGreedyMethod4ActionSelector():
         return picked_actions
 
 
-REGISTRY["method4"] = EpsilonGreedyMethod4ActionSelector
+REGISTRY["method4"] = EpsilonGreedyActionSelector
