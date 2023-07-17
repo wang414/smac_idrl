@@ -19,10 +19,12 @@ agent_output_type: "q"
 learner: "z_learner"
 double_q: True
 mixer: # Mixer becomes None
-quantiles_num: 100
+quantiles_num: 200
 ucb: 60
 ucb_w: 0.8
 agent: "izrnn"
 test_without_qtls: False
+rnn_hidden_dim: 256
+quantiles_num: 200
 
 name: "method4"
