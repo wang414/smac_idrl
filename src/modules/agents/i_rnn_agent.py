@@ -16,7 +16,7 @@ class IRNNAgent(nn.Module):
         # make hidden states on same device as model
         return self.fc1[0].weight.new(1, self.args.rnn_hidden_dim).zero_()
 
-    def forward(self, inputs, hidden_state):
+    def forward(self, inputs, hidden_state):     
 
         inputs = inputs.reshape(-1, self.args.n_agents, inputs.shape[1])
         x = [F.relu(self.fc1[i](inputs[:,i])) for i in range(self.args.n_agents)]
@@ -25,4 +25,15 @@ class IRNNAgent(nn.Module):
         q = [self.fc2[i](h[i]) for i in range(self.args.n_agents)]
         h = torch.cat(h,1).reshape(-1,self.args.rnn_hidden_dim)
         q = torch.cat(q,1).reshape(-1,self.args.n_actions)
+        return q, h
+
+    def forward_single_agent(self, inputs, hidden_state, agent_idx):
+        
+        inputs = inputs.reshape(-1, self.args.n_agents, inputs.shape[1])[:,agent_idx]
+        x = F.relu(self.fc1[agent_idx](inputs))
+        h_in = hidden_state.reshape(-1, self.args.rnn_hidden_dim)
+        h = self.rnn[agent_idx](x, h_in)
+        q = self.fc2[agent_idx](h) 
+        h = h.reshape(-1,self.args.rnn_hidden_dim)
+        q = q.reshape(-1,self.args.n_actions)
         return q, h

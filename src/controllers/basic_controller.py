@@ -23,10 +23,16 @@ class BasicMAC:
         chosen_actions = self.action_selector.select_action(agent_outputs[bs], avail_actions[bs], t_env, test_mode=test_mode)
         return chosen_actions
 
+    def forward_single_agent(self, ep_batch, t, agent_idx, test_mode=False):
+        agent_inputs = self._build_inputs(ep_batch, t)
+        agent_outs, self.hidden_states = self.agent.forward_single_agent(agent_inputs, self.hidden_states, agent_idx)
+        return agent_outs.view(ep_batch.batch_size, -1)
+
+
     def forward(self, ep_batch, t, test_mode=False):
         agent_inputs = self._build_inputs(ep_batch, t)
         avail_actions = ep_batch["avail_actions"][:, t]
-        agent_outs, self.hidden_states = self.agent(agent_inputs, self.hidden_states)
+        agent_outs, self.hidden_states= self.agent(agent_inputs, self.hidden_states)
 
         # Softmax the agent outputs if they're policy logits
         if self.agent_output_type == "pi_logits":
@@ -57,6 +63,10 @@ class BasicMAC:
 
     def init_hidden(self, batch_size):
         self.hidden_states = self.agent.init_hidden().unsqueeze(0).expand(batch_size, self.n_agents, -1)  # bav
+
+    def init_hidden_single_agent(self, batch_size, agent_idx):
+        self.hidden_states = self.agent.init_hidden().unsqueeze(0).expand(batch_size, self.n_agents, -1)  # bav
+        self.hidden_states = self.hidden_states[:,agent_idx,:]
 
     def parameters(self):
         return self.agent.parameters()

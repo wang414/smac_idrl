@@ -5,7 +5,7 @@ from modules.mixers.qmix import QMixer
 import torch as th
 from torch.optim import RMSprop
 from torch.optim import Adam
-
+import sys
 
 class Ma2qlLearner:
     def __init__(self, mac, scheme, logger, args):
@@ -41,28 +41,29 @@ class Ma2qlLearner:
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int, agent_idx: int):
         # Get the relevant quantities
         rewards = batch["reward"][:, :-1]
-        actions = batch["actions"][:, :-1]
+        actions = batch["actions"][:, :-1][:,:,agent_idx,:]
         terminated = batch["terminated"][:, :-1].float()
         mask = batch["filled"][:, :-1].float()
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
-        avail_actions = batch["avail_actions"]
+        avail_actions = batch["avail_actions"][:,:,agent_idx,:]
+
 
         # Calculate estimated Q-Values
         mac_out = []
-        self.mac.init_hidden(batch.batch_size)
+        self.mac.init_hidden_single_agent(batch.batch_size, agent_idx)
         for t in range(batch.max_seq_length):
-            agent_outs = self.mac.forward(batch, t=t)
+            agent_outs = self.mac.forward_single_agent(batch, t=t, agent_idx=agent_idx)
             mac_out.append(agent_outs)
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
 
         # Pick the Q-Values for the actions taken by each agent
-        chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)  # Remove the last dim
+        chosen_action_qvals = th.gather(mac_out[:, :-1], dim=2, index=actions).squeeze(2)  # Remove the last dim
 
         # Calculate the Q-Values necessary for the target
         target_mac_out = []
-        self.target_mac.init_hidden(batch.batch_size)
+        self.target_mac.init_hidden_single_agent(batch.batch_size, agent_idx)
         for t in range(batch.max_seq_length):
-            target_agent_outs = self.target_mac.forward(batch, t=t)
+            target_agent_outs = self.target_mac.forward_single_agent(batch, t=t)
             target_mac_out.append(target_agent_outs)
 
         # We don't need the first timesteps Q-Value estimate for calculating targets
@@ -76,10 +77,10 @@ class Ma2qlLearner:
             # Get actions that maximise live Q (for double q-learning)
             mac_out_detach = mac_out.clone().detach()
             mac_out_detach[avail_actions == 0] = -9999999
-            cur_max_actions = mac_out_detach[:, 1:].max(dim=3, keepdim=True)[1]
-            target_max_qvals = th.gather(target_mac_out, 3, cur_max_actions).squeeze(3)
+            cur_max_actions = mac_out_detach[:, 1:].max(dim=2, keepdim=True)[1]
+            target_max_qvals = th.gather(target_mac_out, 2, cur_max_actions).squeeze(2)
         else:
-            target_max_qvals = target_mac_out.max(dim=3)[0]
+            target_max_qvals = target_mac_out.max(dim=2)[0]
 
         # Mix
         if self.mixer is not None:
@@ -87,11 +88,14 @@ class Ma2qlLearner:
             target_max_qvals = self.target_mixer(target_max_qvals, batch["state"][:, 1:])
 
         # Calculate 1-step Q-Learning targets
-        targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
+
+        self.args.gamma * (1 - terminated.squeeze(-1)) * target_max_qvals
+        targets = rewards.squeeze(-1) + self.args.gamma * (1 - terminated.squeeze(-1)) * target_max_qvals
 
         # Td-error
-        td_error = (chosen_action_qvals - targets.detach())[:,:,agent_idx,...].unsqueeze(-1)
-
+        td_error = (chosen_action_qvals - targets.detach())
+        
+        mask = mask.squeeze(-1)
         mask = mask.expand_as(td_error)
 
         # 0-out the targets that came from padded data

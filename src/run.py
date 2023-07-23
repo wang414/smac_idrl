@@ -163,10 +163,11 @@ def run_sequential(args, logger):
         weight_e = args.ucb_w
         weight = weight_s = 0.0
 
-
+    train_times = args.batch_size_run
     if args.name == 'ma2ql':
         cur_agent = 0
         last_t = 0
+        train_times = train_times * args.n_agents
 
     while runner.t_env <= args.t_max:
 
@@ -184,8 +185,9 @@ def run_sequential(args, logger):
                     last_t = runner.t_env + 1
                     if cur_agent == args.n_agents:
                         cur_agent = 0
+                print(cur_agent)
 
-            for _ in range(args.batch_size_run):
+            for _ in range(train_times):
                 episode_sample = buffer.sample(args.batch_size)
 
                 # Truncate batch to only filled timesteps
