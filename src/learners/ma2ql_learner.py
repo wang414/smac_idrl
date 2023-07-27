@@ -63,7 +63,7 @@ class Ma2qlLearner:
         target_mac_out = []
         self.target_mac.init_hidden_single_agent(batch.batch_size, agent_idx)
         for t in range(batch.max_seq_length):
-            target_agent_outs = self.target_mac.forward_single_agent(batch, t=t)
+            target_agent_outs = self.target_mac.forward_single_agent(batch, t=t, agent_idx=agent_idx)
             target_mac_out.append(target_agent_outs)
 
         # We don't need the first timesteps Q-Value estimate for calculating targets
