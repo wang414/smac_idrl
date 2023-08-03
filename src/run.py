@@ -180,12 +180,12 @@ def run_sequential(args, logger):
         buffer.insert_episode_batch(episode_batch)
         if buffer.can_sample(args.batch_size):
             if args.name == 'ma2ql':
-                if (runner.t_env + 1 - last_t) // args.interval_len >= 1 :
+                if (args.batch_size_run - last_t) // args.interval_len >= 1 :
                     cur_agent += 1
-                    last_t = runner.t_env + 1
+                    last_t = last_t + args.batch_size_run
                     if cur_agent == args.n_agents:
                         cur_agent = 0
-                print(cur_agent)
+                # print(cur_agent)
 
             for _ in range(train_times):
                 episode_sample = buffer.sample(args.batch_size)

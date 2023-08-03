@@ -20,6 +20,6 @@ agent_output_type: "q"
 learner: "ma2ql_learner"
 double_q: True
 mixer: # Mixer becomes None
-interval_len : 200
+interval_len : 150
 
 name: "ma2ql"
