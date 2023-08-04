@@ -176,13 +176,14 @@ def run_sequential(args, logger):
             if runner.t_env >= 5e5 and weight < weight_e:
                 weight = (weight_e-weight_s) * (runner.t_env - 5e5) / (args.t_max - 5e5)
         # Run for a whole episode at a time
-        episode_batch = runner.run(test_mode=False)
+        with th.no_grad():
+            episode_batch = runner.run(test_mode=False)
         buffer.insert_episode_batch(episode_batch)
         if buffer.can_sample(args.batch_size):
             if args.name == 'ma2ql':
-                if (args.batch_size_run - last_t) // args.interval_len >= 1 :
+                if (runner.t_env - last_t) // args.interval_len >= 1 :
                     cur_agent += 1
-                    last_t = last_t + args.batch_size_run
+                    last_t = runner.t_env
                     if cur_agent == args.n_agents:
                         cur_agent = 0
                 # print(cur_agent)
